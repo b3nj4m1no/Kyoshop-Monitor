@@ -1,6 +1,7 @@
 import fetch from 'node-fetch';
 import cheerio from 'cheerio';
 import fs from 'fs';
+import TelegramBot from 'node-telegram-bot-api';
 
 const CONFIG_FILE = 'config.json';
 const STATE_FILE = 'products_state.json';
@@ -99,10 +100,20 @@ function checkChanges(oldState, products) {
     return alerts;
 }
 
+async function sendTelegramAlert(bot, chatId, message) {
+    try {
+        await bot.sendMessage(chatId, message);
+    } catch (err) {
+        logError(`Telegram error: ${err}`, loadConfig().alertLogFile);
+    }
+}
+
 async function main() {
     const config = loadConfig();
-    const { sitemapUrl, pollInterval, alertLogFile } = config;
+    const { sitemapUrl, pollInterval, alertLogFile, telegramToken, telegramChatId } = config;
     let lastAlerts = loadLastAlerts(alertLogFile);
+
+    const bot = telegramToken && telegramChatId ? new TelegramBot(telegramToken) : null;
 
     try {
         const oldState = loadState();
@@ -111,8 +122,43 @@ async function main() {
         for (const url of urls) {
             try {
                 const prod = await getProductInfo(url);
-                products.push(prod);
-                console.log(`Prodotto estratto:`, prod);
+                const oldProd = oldState[prod.name];
+                let alert = null;
+
+                if (!oldProd) {
+                    alert = `🆕 Nuovo prodotto: ${prod.name} (${prod.price}€)`;
+                } else {
+                    if (!oldProd.available && prod.available) {
+                        alert = `🔄 Restock: ${prod.name} (${prod.price}€)`;
+                    }
+                    if (oldProd.available && !prod.available) {
+                        alert = `❌ Sold out: ${prod.name}`;
+                    }
+                    if (prod.price !== oldProd.price && prod.price !== null && oldProd.price !== null) {
+                        try {
+                            const perc = ((prod.price - oldProd.price) / oldProd.price) * 100;
+                            alert = `💸 Prezzo cambiato: ${prod.name} da ${oldProd.price}€ a ${prod.price}€ (${perc.toFixed(2)}%)`;
+                        } catch {
+                            alert = `💸 Prezzo cambiato: ${prod.name} da ${oldProd.price}€ a ${prod.price}€`;
+                        }
+                    }
+                }
+
+                // Stampa, logga e invia solo se c'è una variazione
+                if (alert) {
+                    console.log(alert);
+                    logAlert(alert, alertLogFile);
+                    if (bot) await sendTelegramAlert(bot, telegramChatId, alert);
+                }
+
+                // Aggiorna lo stato subito per ogni prodotto
+                oldState[prod.name] = {
+                    price: prod.price,
+                    available: prod.available,
+                    quantity: prod.quantity
+                };
+                saveState(oldState);
+
             } catch (e) {
                 logError(e, alertLogFile);
                 console.log(e);
@@ -132,10 +178,11 @@ async function main() {
             const alerts = checkChanges(oldState, products);
             // Evita duplicati: stampa e logga solo alert nuovi
             const newAlerts = alerts.filter(a => !lastAlerts.includes(a));
-            newAlerts.forEach(a => {
+            for (const a of newAlerts) {
                 console.log(a);
                 logAlert(a, alertLogFile);
-            });
+                if (bot) await sendTelegramAlert(bot, telegramChatId, a);
+            }
             for (const prod of products) {
                 oldState[prod.name] = {
                     price: prod.price,
