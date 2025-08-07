@@ -51,7 +51,7 @@ async function getProductInfo(productUrl) {
             });
             price = prices.length > 1 ? prices : prices[0];
         }
-        // Migliorato: controlla anche la presenza del messaggio "Prodotto Esaurito"
+
         let available = $('button.single_add_to_cart_button').length > 0;
         if ($('p.stock.out-of-stock').length > 0) available = false;
         if (price === null) available = false;
@@ -76,7 +76,6 @@ function saveState(state) {
 function loadLastAlerts(logFile) {
     if (!fs.existsSync(logFile)) return [];
     const lines = fs.readFileSync(logFile, 'utf-8').trim().split('\n');
-    // Prendi solo gli ultimi alert (non errori)
     return lines.filter(l => !l.includes('ERROR:'));
 }
 
@@ -140,7 +139,6 @@ function formatPrice(price) {
 }
 
 function formatAlert(prod, oldProd) {
-    // Nuovo prodotto
     if (!oldProd) {
         return `
 ✨ <b>NUOVO ARRIVO!</b> ✨
@@ -150,7 +148,6 @@ ${prod.quantity ? `📦 <b>Disponibilità:</b> <code>${prod.quantity}</code>` : 
 👇 <b>Scopri di più e acquista ora!</b>
         `.trim();
     }
-    // Restock
     if (!oldProd.available && prod.available) {
         return `
 🔄 <b>RESTOCK!</b>
@@ -160,7 +157,6 @@ ${prod.quantity ? `📦 <b>Disponibilità:</b> <code>${prod.quantity}</code>` : 
 👇 <b>Non perdere l'occasione!</b>
         `.trim();
     }
-    // Sold out
     if (oldProd.available && !prod.available) {
         return `
 ❌ <b>Sold Out!</b>
@@ -168,7 +164,6 @@ ${prod.quantity ? `📦 <b>Disponibilità:</b> <code>${prod.quantity}</code>` : 
 ⏳ <i>Al momento non disponibile.</i>
         `.trim();
     }
-    // Prezzo cambiato (array o singolo)
     if (!isSamePrice(prod.price, oldProd.price) && prod.price !== null && oldProd.price !== null) {
         let oldP = Array.isArray(oldProd.price) ? oldProd.price[0] : oldProd.price;
         let newP = Array.isArray(prod.price) ? prod.price[0] : prod.price;
@@ -203,7 +198,6 @@ async function main() {
             try {
                 const prod = await getProductInfo(url);
 
-                // Escludi prodotti con prezzo 0 o null (anche se array)
                 let priceToCheck = Array.isArray(prod.price) ? prod.price[0] : prod.price;
                 if (priceToCheck === 0 || priceToCheck === null) continue;
 
@@ -220,7 +214,6 @@ async function main() {
                         alert = `❌ <b>Sold out</b>\n<b>${cleanName(prod.name)}</b>`;
                     }
                     if (!isSamePrice(prod.price, oldProd.price) && prod.price !== null && oldProd.price !== null) {
-                        // Se entrambi sono array, considera solo il primo prezzo
                         if (Array.isArray(prod.price) && Array.isArray(oldProd.price)) {
                             if (prod.price[0] !== oldProd.price[0]) {
                                 const perc = ((prod.price[0] - oldProd.price[0]) / oldProd.price[0] * 100).toFixed(2);
@@ -263,7 +256,6 @@ async function main() {
             saveState(oldState);
         } else {
             const alerts = checkChanges(oldState, products);
-            // Evita duplicati: stampa e logga solo alert nuovi
             const newAlerts = alerts.filter(a => !lastAlerts.includes(a));
             for (const a of newAlerts) {
                 console.log(a);
