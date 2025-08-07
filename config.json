@@ -1,7 +1,0 @@
-{
-  "sitemapUrl": "https://kyoshop.it/product-sitemap.xml",
-  "pollInterval": 300,
-  "alertLogFile": "alerts.log",
-  "telegramToken": "8406104839:AAF5CeA9BjURRP2Y0qZ3GffnfuxChXjvXkI",
-  "telegramChatId": "@vibesmatt"
-}
