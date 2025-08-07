@@ -1,4 +1,6 @@
 node_modules/
+alerts.log
+config.json
 products_state.json
 *.log
 .env

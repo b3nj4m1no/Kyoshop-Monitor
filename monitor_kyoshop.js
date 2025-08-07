@@ -51,11 +51,14 @@ async function getProductInfo(productUrl) {
             });
             price = prices.length > 1 ? prices : prices[0];
         }
+        // Migliorato: controlla anche la presenza del messaggio "Prodotto Esaurito"
         let available = $('button.single_add_to_cart_button').length > 0;
+        if ($('p.stock.out-of-stock').length > 0) available = false;
         if (price === null) available = false;
         const qtyTag = $('input.qty');
         const quantity = qtyTag.attr('max') || null;
-        return { name, price, available, quantity };
+        const imageUrl = $('div.woocommerce-product-gallery__image img').attr('src') || null;
+        return { name, price, available, quantity, imageUrl };
     } catch (err) {
         throw `Errore su ${productUrl}: ${err}`;
     }
@@ -87,7 +90,7 @@ function checkChanges(oldState, products) {
         } else {
             if (!oldProd.available && available) alerts.push(`🔄 Restock: ${name} (${price}€)`);
             if (oldProd.available && !available) alerts.push(`❌ Sold out: ${name}`);
-            if (price !== oldProd.price && price !== null && oldProd.price !== null) {
+            if (price !== null && oldProd.price !== null && price !== oldProd.price) {
                 try {
                     const perc = ((price - oldProd.price) / oldProd.price) * 100;
                     alerts.push(`💸 Prezzo cambiato: ${name} da ${oldProd.price}€ a ${price}€ (${perc.toFixed(2)}%)`);
@@ -100,12 +103,89 @@ function checkChanges(oldState, products) {
     return alerts;
 }
 
-async function sendTelegramAlert(bot, chatId, message) {
+async function sendTelegramAlert(bot, chatId, message, url, imageUrl) {
+    const opts = {
+        parse_mode: 'HTML',
+        reply_markup: {
+            inline_keyboard: [
+                [
+                    { text: '🛒 Acquista ora', url: url }
+                ]
+            ]
+        }
+    };
     try {
-        await bot.sendMessage(chatId, message);
+        if (imageUrl) {
+            await bot.sendPhoto(chatId, imageUrl, { ...opts, caption: message });
+        } else {
+            await bot.sendMessage(chatId, message, opts);
+        }
     } catch (err) {
         logError(`Telegram error: ${err}`, loadConfig().alertLogFile);
     }
+}
+
+function isSamePrice(a, b) {
+    if (Array.isArray(a) && Array.isArray(b)) {
+        return a.length === b.length && a.every((v, i) => v === b[i]);
+    }
+    return a === b;
+}
+
+function formatPrice(price) {
+    if (Array.isArray(price)) {
+        return price[0] + '€';
+    }
+    return price + '€';
+}
+
+function formatAlert(prod, oldProd) {
+    // Nuovo prodotto
+    if (!oldProd) {
+        return `
+✨ <b>NUOVO ARRIVO!</b> ✨
+<b>${prod.name}</b>
+💰 <b>Prezzo:</b> <code>${formatPrice(prod.price)}</code>
+${prod.quantity ? `📦 <b>Disponibilità:</b> <code>${prod.quantity}</code>` : ''}
+👇 <b>Scopri di più e acquista ora!</b>
+        `.trim();
+    }
+    // Restock
+    if (!oldProd.available && prod.available) {
+        return `
+🔄 <b>RESTOCK!</b>
+<b>${prod.name}</b>
+💰 <b>Prezzo:</b> <code>${formatPrice(prod.price)}</code>
+${prod.quantity ? `📦 <b>Disponibilità:</b> <code>${prod.quantity}</code>` : ''}
+👇 <b>Non perdere l'occasione!</b>
+        `.trim();
+    }
+    // Sold out
+    if (oldProd.available && !prod.available) {
+        return `
+❌ <b>Sold Out!</b>
+<b>${prod.name}</b>
+⏳ <i>Al momento non disponibile.</i>
+        `.trim();
+    }
+    // Prezzo cambiato (array o singolo)
+    if (!isSamePrice(prod.price, oldProd.price) && prod.price !== null && oldProd.price !== null) {
+        let oldP = Array.isArray(oldProd.price) ? oldProd.price[0] : oldProd.price;
+        let newP = Array.isArray(prod.price) ? prod.price[0] : prod.price;
+        const perc = ((newP - oldP) / oldP * 100).toFixed(2);
+        return `
+💸 <b>PREZZO AGGIORNATO!</b>
+<b>${prod.name}</b>
+<b>${oldP}€</b> <b>→</b> <b>${newP}€</b> <i>(${perc > 0 ? '+' : ''}${perc}%)</i>
+${prod.quantity ? `📦 <b>Disponibilità:</b> <code>${prod.quantity}</code>` : ''}
+🔥 <b>Approfitta subito del nuovo prezzo!</b>
+        `.trim();
+    }
+    return null;
+}
+
+function cleanName(name) {
+    return name.split('|')[0].trim();
 }
 
 async function main() {
@@ -122,36 +202,43 @@ async function main() {
         for (const url of urls) {
             try {
                 const prod = await getProductInfo(url);
+
+                // Escludi prodotti con prezzo 0 o null (anche se array)
+                let priceToCheck = Array.isArray(prod.price) ? prod.price[0] : prod.price;
+                if (priceToCheck === 0 || priceToCheck === null) continue;
+
                 const oldProd = oldState[prod.name];
                 let alert = null;
 
                 if (!oldProd) {
-                    alert = `🆕 Nuovo prodotto: ${prod.name} (${prod.price}€)`;
+                    alert = `🆕 <b>Nuovo prodotto</b>\n<b>${cleanName(prod.name)}</b>\nPrezzo: <b>${formatPrice(prod.price)}</b>`;
                 } else {
                     if (!oldProd.available && prod.available) {
-                        alert = `🔄 Restock: ${prod.name} (${prod.price}€)`;
+                        alert = `🔄 <b>Restock</b>\n<b>${cleanName(prod.name)}</b>\nPrezzo: <b>${formatPrice(prod.price)}</b>`;
                     }
                     if (oldProd.available && !prod.available) {
-                        alert = `❌ Sold out: ${prod.name}`;
+                        alert = `❌ <b>Sold out</b>\n<b>${cleanName(prod.name)}</b>`;
                     }
-                    if (prod.price !== oldProd.price && prod.price !== null && oldProd.price !== null) {
-                        try {
+                    if (!isSamePrice(prod.price, oldProd.price) && prod.price !== null && oldProd.price !== null) {
+                        // Se entrambi sono array, considera solo il primo prezzo
+                        if (Array.isArray(prod.price) && Array.isArray(oldProd.price)) {
+                            if (prod.price[0] !== oldProd.price[0]) {
+                                const perc = ((prod.price[0] - oldProd.price[0]) / oldProd.price[0] * 100).toFixed(2);
+                                alert = `💸 <b>Prezzo cambiato</b>\n<b>${cleanName(prod.name)}</b>\n<b>${oldProd.price[0]}€ → ${prod.price[0]}€</b> <i>(${perc > 0 ? '+' : ''}${perc}%)</i>`;
+                            }
+                        } else if (prod.price !== oldProd.price) {
                             const perc = ((prod.price - oldProd.price) / oldProd.price) * 100;
-                            alert = `💸 Prezzo cambiato: ${prod.name} da ${oldProd.price}€ a ${prod.price}€ (${perc.toFixed(2)}%)`;
-                        } catch {
-                            alert = `💸 Prezzo cambiato: ${prod.name} da ${oldProd.price}€ a ${prod.price}€`;
+                            alert = `💸 <b>Prezzo cambiato</b>\n<b>${cleanName(prod.name)}</b>\n<b>${oldP}€ → ${newP}€</b> <i>(${perc > 0 ? '+' : ''}${perc}%)</i>`;
                         }
                     }
                 }
 
-                // Stampa, logga e invia solo se c'è una variazione
                 if (alert) {
-                    console.log(alert);
-                    logAlert(alert, alertLogFile);
-                    if (bot) await sendTelegramAlert(bot, telegramChatId, alert);
+                    console.log(alert.replace(/<[^>]+>/g, ''));
+                    logAlert(alert.replace(/<[^>]+>/g, ''), alertLogFile);
+                    if (bot) await sendTelegramAlert(bot, telegramChatId, alert, url, prod.imageUrl);
                 }
 
-                // Aggiorna lo stato subito per ogni prodotto
                 oldState[prod.name] = {
                     price: prod.price,
                     available: prod.available,
