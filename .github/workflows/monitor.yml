@@ -1,10 +1,3 @@
-name: Kyoshop Monitor
-
-on:
-  workflow_dispatch:
-  schedule:
-    - cron: '0 * * * *' # ogni ora
-
 jobs:
   monitor:
     runs-on: ubuntu-latest
@@ -18,7 +11,20 @@ jobs:
         run: echo "$CONFIG_JSON" > config.json
         env:
           CONFIG_JSON: ${{ secrets.CONFIG_JSON }}
+      - name: Download state files
+        uses: actions/download-artifact@v4
+        with:
+          name: state-files
+          path: .
+        continue-on-error: true
       - name: Install dependencies
         run: npm install
       - name: Run monitor
         run: node monitor_kyoshop.js
+      - name: Upload state files
+        uses: actions/upload-artifact@v4
+        with:
+          name: state-files
+          path: |
+            products_state.json
+            alerts.log
