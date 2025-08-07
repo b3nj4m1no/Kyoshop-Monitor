@@ -1,0 +1,4 @@
+node_modules/
+products_state.json
+*.log
+.env

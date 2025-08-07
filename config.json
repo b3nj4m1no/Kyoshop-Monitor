@@ -1,0 +1,5 @@
+{
+  "sitemapUrl": "https://kyoshop.it/product-sitemap.xml",
+  "pollInterval": 300,
+  "alertLogFile": "alerts.log"
+}
