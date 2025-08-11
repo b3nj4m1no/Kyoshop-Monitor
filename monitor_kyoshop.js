@@ -308,4 +308,4 @@ async function mainLoop() {
 
 const KYOSHOP_TOPIC_ID = 4294967298;
 
-mainLoop();
+main();
