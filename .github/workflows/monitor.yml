@@ -3,35 +3,45 @@ name: Kyoshop Monitor
 on:
   workflow_dispatch:
   schedule:
-    - cron: '*/5 * * * *' 
+    - cron: '*/5 * * * *'
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+
       - name: Create config.json from secret
         run: echo "$CONFIG_JSON" > config.json
         env:
           CONFIG_JSON: ${{ secrets.CONFIG_JSON }}
-      - name: Download state files
-        uses: actions/download-artifact@v4
-        with:
-          name: state-files
-          path: .
-        continue-on-error: true
+
+      - name: Clone state repo
+        run: git clone https://x-access-token:${{ secrets.STATE_REPO_TOKEN }}@github.com/<USER>/kyoshop-monitor-state.git state-repo
+
+      - name: Copy state files if exist
+        run: |
+          if [ -f state-repo/products_state.json ]; then cp state-repo/products_state.json .; fi
+          if [ -f state-repo/alerts.log ]; then cp state-repo/alerts.log .; fi
+
       - name: Install dependencies
         run: npm install
+
       - name: Run monitor
         run: node monitor_kyoshop.js
-      - name: Upload state files
-        uses: actions/upload-artifact@v4
-        with:
-          name: state-files
-          path: |
-            products_state.json
-            alerts.log
+
+      - name: Update state repo
+        run: |
+          cp products_state.json state-repo/products_state.json
+          cp alerts.log state-repo/alerts.log
+          cd state-repo
+          git config user.email "bot@example.com"
+          git config user.name "github-actions"
+          git add products_state.json alerts.log
+          git commit -m "Update state" || echo "No changes to commit"
+          git push
