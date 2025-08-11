@@ -190,6 +190,25 @@ async function main() {
 
     const bot = telegramToken && telegramChatId ? new TelegramBot(telegramToken) : null;
 
+    if (telegramToken && telegramChatId) {
+        const bot = new TelegramBot(telegramToken, { polling: true });
+
+        bot.on('message', async (msg) => {
+            if (
+                msg.chat &&
+                msg.chat.id.toString() === telegramChatId.toString() &&
+                msg.message_thread_id === KYOSHOP_TOPIC_ID &&
+                !msg.from.is_bot
+            ) {
+                try {
+                    await bot.deleteMessage(msg.chat.id, msg.message_id);
+                } catch (e) {
+                    console.log('Errore eliminazione messaggio:', e);
+                }
+            }
+        });
+    }
+
     try {
         const oldState = loadState();
         const urls = await getProductUrlsFromSitemap(sitemapUrl);
@@ -286,5 +305,7 @@ async function mainLoop() {
         await new Promise(res => setTimeout(res, pollInterval * 1000));
     }
 }
+
+const KYOSHOP_TOPIC_ID = 4294967298;
 
 mainLoop();
